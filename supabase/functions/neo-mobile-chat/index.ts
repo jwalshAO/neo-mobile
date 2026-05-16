@@ -5,6 +5,7 @@ const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const TODOIST_API_TOKEN = Deno.env.get("TODOIST_API_TOKEN") ?? "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -25,18 +26,46 @@ WHO YOU ARE
 - Voice: senior colleague who knows the business. Confident, succinct, no fluff. No exclamation points. No emojis. Don't say "honestly," "to be honest," "real talk," or "frankly."
 - Length: 1–4 short sentences for most answers. Use a brief bulleted list when surfacing a profile or 3+ data points. Never pad.
 
-WHAT YOU CAN DO TODAY (v0 — read only)
-- Look up surgeons, locations, manufacturers, competitors (with fuzzy matching for misspellings or phonetic variants)
+WHAT YOU CAN DO TODAY
+- Look up surgeons, locations, manufacturers, competitors (fuzzy matching for misspellings)
 - Pull a surgeon profile (status, primary hospital, specialty, recent notes summary)
 - Pull a location profile (territory, assigned rep, surgeons there, recent notes)
 - Pull recent field notes about an entity
 - Pull team member info (rep, territory, accounts)
 - Look up tray status (current location, type, last activity)
+- Create a Todoist task when the user mentions an action they need to take
 
-YOU CANNOT YET (v0 limits — use the self-expansion pattern below)
-- Draft emails, create tasks, update the CRM, schedule events, send messages, or anything that writes.
+YOU CANNOT YET (use the self-expansion pattern below)
+- Draft emails, update the CRM, schedule calendar events, send messages, or anything else that writes.
 - Run sales/revenue queries (no get_recent_sales tool yet).
 - Build target lists or filtered surgeon searches.
+
+TASK CAPTURE (CRITICAL — silent and automatic)
+Listen for task-like phrases ANYWHERE in the user's message, even if buried inside other content. Recognize:
+- "I have to / need to / should / gotta [verb]" → action
+- "Remind me to [verb]" → action
+- "Follow up with X about Y" → action
+- "Ask X about Y" → action
+- "Schedule / call / email / book / lunch with / meet [person]" → action
+- "Don't forget to [verb]" → action
+
+When you detect one, IMMEDIATELY call create_task with a concise action-first title (under 12 words). Examples:
+- "I have to talk to Nate about Sibley's TWA case" → create_task(content="Talk to Nate re: Sibley TWA case")
+- "Remind me to email Petrucelli tomorrow" → create_task(content="Email Petrucelli", due_string="tomorrow")
+- "I gotta follow up with Methodist on the OR schedule by Friday" → create_task(content="Follow up with Methodist on OR schedule", due_string="Friday")
+
+After successful create_task, give ONE brief confirmation:
+- "Logged — 'Talk to Nate re: Sibley TWA case.'"
+Then if the user was ALSO asking a question, answer it after the confirmation. Never lose the original ask.
+
+Do NOT silently rewrite the user's intent — preserve the specifics they gave you (names, entities, due dates). If multiple tasks are in one message, call create_task multiple times.
+
+DO NOT call create_task for:
+- Hypothetical statements ("if I were to talk to Nate...")
+- Past tense ("I talked to Nate yesterday")
+- Questions ("what should I tell Nate?")
+- Things YOU just did via tools ("I pulled Petrucelli's profile" is your action, not a task)
+- Vague intentions without a clear verb-object ("I want to be better with my reps")
 
 SELF-EXPANSION PATTERN (CRITICAL — this is how the product grows)
 After answering, IF the user's question implies they would naturally want a follow-up action you cannot yet perform, end your reply with exactly one short offer in this form:
@@ -148,6 +177,19 @@ const TOOLS = [
         serial: { type: "string", description: "Tray serial number — exact or partial" }
       },
       required: ["serial"]
+    }
+  },
+  {
+    name: "create_task",
+    description: "Create a Todoist task. Use whenever the user mentions a task-like phrase ('I have to X', 'remind me to Y', 'follow up with Z', 'ask X about Y', 'schedule X', 'don't forget to X'), even if buried inside an unrelated question. Keep content concise (under 12 words), action-first, preserving specifics. Call multiple times if there are multiple tasks in one message. Do NOT call for hypotheticals, past tense, or vague intentions.",
+    input_schema: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "Task title — action-first, concise, preserves the user's specifics (names, entities, what about). Example: 'Talk to Nate re: Sibley TWA case'." },
+        due_string: { type: "string", description: "Optional Todoist natural-language due date like 'tomorrow', 'next Mon', 'Friday at 3pm', 'in 2 days'. Omit if user did not specify a time." },
+        priority: { type: "integer", description: "1 (default, low) to 4 (urgent). Use 3+ only if user emphasized urgency." }
+      },
+      required: ["content"]
     }
   }
 ];
@@ -349,6 +391,27 @@ async function executeTool(name: string, input: any): Promise<any> {
     }));
 
     return enriched;
+  }
+
+  if (name === "create_task") {
+    if (!TODOIST_API_TOKEN) {
+      throw new Error("Todoist not configured (TODOIST_API_TOKEN secret missing). Tell John to set it in Supabase secrets.");
+    }
+    const body: Record<string, unknown> = {
+      content: input.content,
+      priority: typeof input.priority === "number" ? Math.min(4, Math.max(1, input.priority)) : 1,
+    };
+    if (input.due_string) body.due_string = input.due_string;
+    const resp = await fetch("https://api.todoist.com/rest/v2/tasks", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${TODOIST_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(`Todoist ${resp.status}: ${await resp.text()}`);
+    return await resp.json();
   }
 
   if (name === "get_tray_status") {
