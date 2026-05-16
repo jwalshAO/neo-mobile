@@ -411,7 +411,7 @@ async function executeTool(name: string, input: any): Promise<any> {
       priority: typeof input.priority === "number" ? Math.min(4, Math.max(1, input.priority)) : 1,
     };
     if (input.due_string) body.due_string = input.due_string;
-    const resp = await fetch("https://api.todoist.com/rest/v2/tasks", {
+    const resp = await fetch("https://api.todoist.com/api/v1/tasks", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${TODOIST_API_TOKEN}`,
