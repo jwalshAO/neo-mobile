@@ -399,7 +399,12 @@ async function executeTool(name: string, input: any): Promise<any> {
 
   if (name === "create_task") {
     if (!TODOIST_API_TOKEN) {
-      throw new Error("Todoist not configured (TODOIST_API_TOKEN secret missing). Tell John to set it in Supabase secrets.");
+      const seen = {
+        TODOIST_API_TOKEN: Deno.env.get("TODOIST_API_TOKEN") ? "set" : "missing",
+        "Todoist-API-Token": Deno.env.get("Todoist-API-Token") ? "set" : "missing",
+        todoist_api_token: Deno.env.get("todoist_api_token") ? "set" : "missing",
+      };
+      throw new Error(`Todoist token not found in Supabase secrets. Checked: ${JSON.stringify(seen)}`);
     }
     const body: Record<string, unknown> = {
       content: input.content,
@@ -414,7 +419,10 @@ async function executeTool(name: string, input: any): Promise<any> {
       },
       body: JSON.stringify(body),
     });
-    if (!resp.ok) throw new Error(`Todoist ${resp.status}: ${await resp.text()}`);
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`Todoist API ${resp.status}: ${errText.slice(0, 200)}`);
+    }
     return await resp.json();
   }
 
@@ -549,7 +557,7 @@ Deno.serve(async (req) => {
 
       const toolResults: any[] = [];
       for (const block of toolUseBlocks) {
-        toolCallsMade.push({ name: block.name, input: block.input });
+        const callRecord: any = { name: block.name, input: block.input };
         try {
           const result = await executeTool(block.name, block.input);
           toolResults.push({
@@ -558,13 +566,17 @@ Deno.serve(async (req) => {
             content: JSON.stringify(result),
           });
         } catch (err) {
+          const message = (err as Error).message;
+          callRecord.error = message;
+          console.error(`tool ${block.name} failed:`, message);
           toolResults.push({
             type: "tool_result",
             tool_use_id: block.id,
-            content: `Error: ${(err as Error).message}`,
+            content: `Error: ${message}`,
             is_error: true,
           });
         }
+        toolCallsMade.push(callRecord);
       }
 
       messages.push({ role: "user", content: toolResults });
