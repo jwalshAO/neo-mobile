@@ -30,14 +30,14 @@ They differ in: system prompt, tool set, voice/persona, and audience (all reps v
 
 ## Deploy workflow
 
-- **Frontend changes** (`index.html`, `manifest.json`, `sw.js`, `vercel.json`):
+- **Frontend changes** (`index.html`, `manifest.json`, `sw.js`, `vercel.json`, icons):
   ```
-  git add . && git commit -m "v0.x: ..." && git push origin main
+  git add . && git commit -m "v0.x: ..." && git push origin main && ./bin/update-aliases.sh
   ```
-  Vercel auto-deploys on push to main.
+  Vercel auto-deploys on push to main. The auto-generated `neo-mobile-agility-ortho.vercel.app` follows production automatically. **The custom aliases (`neomobile.vercel.app`, `neo-ao.vercel.app`, `neo-mobile-ao.vercel.app`) are pinned per-deployment** and need re-pointing via the helper script — run it after every push.
 
 - **Edge Function changes** (`supabase/functions/neo-mobile-chat/index.ts`):
-  Deploy via Supabase MCP `deploy_edge_function` tool (function name `neo-mobile-chat`, project_id `pchhtltxdcmvdcwnwaeg`), OR via Supabase CLI at the office.
+  Deploy via Supabase MCP `deploy_edge_function` tool (function name `neo-mobile-chat`, project_id `pchhtltxdcmvdcwnwaeg`), OR via Supabase CLI at the office. No Vercel rebuild needed.
 
 ## Tone of the assistant inside the app
 
