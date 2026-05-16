@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Neo Mobile">
+  <meta name="theme-color" content="#1e40af">
+  <title>Neo Mobile — Agility Ortho</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue-700: #1d4ed8;
+      --blue-600: #2563eb;
+      --blue-500: #3b82f6;
+      --blue-100: #dbeafe;
+      --blue-50: #eff6ff;
+      --gray-900: #111827;
+      --gray-700: #374151;
+      --gray-500: #6b7280;
+      --gray-400: #9ca3af;
+      --gray-300: #d1d5db;
+      --gray-200: #e5e7eb;
+      --gray-100: #f3f4f6;
+      --gray-50: #f9fafb;
+      --white: #ffffff;
+      --green-600: #16a34a;
+      --green-100: #dcfce7;
+      --red-600: #dc2626;
+      --red-100: #fee2e2;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--gray-50);
+      color: var(--gray-900);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, var(--blue-700), var(--blue-600));
+      color: white;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+    .header-sub { font-size: 11px; opacity: 0.85; font-weight: 400; }
+    .header-user-wrapper { position: relative; }
+    .header-user {
+      font-size: 13px;
+      background: rgba(255,255,255,0.2);
+      padding: 6px 12px;
+      border-radius: 20px;
+      cursor: pointer;
+      white-space: nowrap;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .header-user:hover { background: rgba(255,255,255,0.3); }
+    .header-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      background: var(--white);
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+      border: 1px solid var(--gray-200);
+      min-width: 180px;
+      overflow: hidden;
+      z-index: 101;
+    }
+    .header-menu.open { display: block; }
+    .header-menu-email {
+      padding: 10px 14px;
+      font-size: 12px;
+      color: var(--gray-500);
+      border-bottom: 1px solid var(--gray-100);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .header-menu-item {
+      padding: 12px 14px;
+      font-size: 14px;
+      color: var(--gray-700);
+      cursor: pointer;
+      font-weight: 500;
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .header-menu-item:last-child { border-bottom: none; }
+    .header-menu-item:hover { background: var(--gray-100); }
+    .header-menu-item.danger { color: var(--red-600); }
+
+    /* Main content */
+    .content { padding: 16px; max-width: 600px; margin: 0 auto; }
+
+    /* Form input (login only in v0) */
+    .form-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid var(--gray-300);
+      border-radius: 10px;
+      font-size: 16px;
+      background: var(--white);
+      color: var(--gray-900);
+      transition: border-color 0.2s;
+      -webkit-appearance: none;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: var(--blue-500);
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+    }
+
+    .btn-submit {
+      width: 100%;
+      padding: 14px;
+      background: var(--blue-600);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-submit:hover { background: var(--blue-700); }
+    .btn-submit:disabled { background: var(--gray-300); cursor: not-allowed; }
+
+    /* Spinner */
+    .spinner {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 2.5px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Login screen */
+    .login-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+      background: linear-gradient(180deg, var(--blue-50) 0%, var(--white) 50%);
+    }
+    .login-logo { font-size: 28px; font-weight: 800; color: var(--blue-700); margin-bottom: 4px; }
+    .login-sub { font-size: 14px; color: var(--gray-500); margin-bottom: 32px; }
+    .login-card {
+      background: var(--white);
+      border-radius: 16px;
+      padding: 24px;
+      width: 100%;
+      max-width: 360px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    }
+    .login-card h2 { font-size: 16px; margin-bottom: 16px; color: var(--gray-700); }
+    .login-hint {
+      font-size: 13px;
+      color: var(--gray-500);
+      margin-top: 12px;
+      text-align: center;
+    }
+    .login-error {
+      font-size: 13px;
+      color: var(--red-600);
+      margin-top: 8px;
+      text-align: center;
+    }
+    .login-back {
+      font-size: 13px;
+      color: var(--blue-600);
+      cursor: pointer;
+      text-align: center;
+      margin-top: 12px;
+      font-weight: 600;
+    }
+
+    /* Splash screen */
+    .splash-screen {
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(180deg, #1d4ed8 0%, #2563eb 40%, #3b82f6 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: transform 0.4s ease;
+      touch-action: none;
+    }
+    .splash-screen.dismissed {
+      transform: translateY(-100%);
+      pointer-events: none;
+    }
+    .splash-icon {
+      width: 100px;
+      height: 100px;
+      border-radius: 22px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+      margin-top: -40px;
+      margin-bottom: 20px;
+    }
+    .splash-title {
+      font-size: 28px;
+      font-weight: 800;
+      color: white;
+      letter-spacing: -0.5px;
+    }
+    .splash-subtitle {
+      font-size: 14px;
+      color: rgba(255,255,255,0.8);
+      margin-top: 4px;
+      font-weight: 500;
+    }
+    .splash-blurb {
+      max-width: 300px;
+      text-align: center;
+      font-size: 13px;
+      line-height: 1.6;
+      color: rgba(255,255,255,0.75);
+      margin-top: 32px;
+    }
+    .splash-arrow {
+      position: absolute;
+      bottom: 36px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      animation: arrowBounce 2s ease-in-out infinite;
+    }
+    .splash-arrow svg {
+      opacity: 0.4;
+    }
+    @keyframes arrowBounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+
+    /* Chat mode */
+    .chat-mode { display: flex; flex-direction: column; }
+    .chat-thread {
+      background: var(--white); border-radius: 14px;
+      padding: 14px; min-height: 280px; max-height: 60vh;
+      overflow-y: auto; border: 1px solid var(--gray-200);
+      display: flex; flex-direction: column; gap: 10px;
+      margin-bottom: 12px;
+    }
+    .chat-bubble {
+      max-width: 88%; padding: 10px 14px;
+      border-radius: 16px; font-size: 15px; line-height: 1.5;
+      word-wrap: break-word; white-space: pre-wrap;
+    }
+    .chat-bubble.user {
+      align-self: flex-end; background: var(--blue-600); color: white;
+      border-bottom-right-radius: 4px;
+    }
+    .chat-bubble.assistant {
+      align-self: flex-start; background: var(--gray-100); color: var(--gray-900);
+      border-bottom-left-radius: 4px;
+    }
+    .chat-bubble.system {
+      align-self: center; background: transparent; color: var(--gray-400);
+      font-size: 11px; font-style: italic; padding: 4px 0;
+    }
+    .chat-typing {
+      align-self: flex-start; display: inline-flex; gap: 4px;
+      padding: 14px 14px; background: var(--gray-100); border-radius: 16px;
+      border-bottom-left-radius: 4px;
+    }
+    .chat-typing span {
+      width: 6px; height: 6px; background: var(--gray-400); border-radius: 50%;
+      animation: typingBounce 1.4s infinite ease-in-out both;
+    }
+    .chat-typing span:nth-child(2) { animation-delay: 0.16s; }
+    .chat-typing span:nth-child(3) { animation-delay: 0.32s; }
+    @keyframes typingBounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+
+    .chat-composer {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--white); padding: 8px;
+      border-radius: 28px; border: 1px solid var(--gray-300);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    .mic-btn, .send-btn {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: var(--blue-600); color: white; border: none;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .mic-btn:active, .send-btn:active { background: var(--blue-700); }
+    .mic-btn.recording {
+      background: var(--red-600);
+      animation: micPulse 1.2s ease-in-out infinite;
+    }
+    .send-btn:disabled { background: var(--gray-300); cursor: default; }
+    @keyframes micPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5); }
+      50% { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0); }
+    }
+    .chat-input {
+      flex: 1; border: none; outline: none; background: transparent;
+      font-size: 16px; padding: 8px 4px; color: var(--gray-900);
+      min-width: 0;
+    }
+    .chat-input::placeholder { color: var(--gray-400); }
+    .chat-error {
+      align-self: center; background: var(--red-100); color: var(--red-600);
+      font-size: 12px; padding: 6px 12px; border-radius: 12px;
+    }
+
+    /* Reset link below composer */
+    .reset-row {
+      display: flex; justify-content: center; margin-top: 10px;
+    }
+    .reset-link {
+      background: none; border: none; color: var(--gray-500);
+      font-size: 12px; font-weight: 500; cursor: pointer; padding: 6px 10px;
+      border-radius: 8px; -webkit-tap-highlight-color: transparent;
+    }
+    .reset-link:hover, .reset-link:active { background: var(--gray-100); color: var(--blue-600); }
+  </style>
+</head>
+<body>
+
+  <!-- SPLASH SCREEN -->
+  <div id="splashScreen" class="splash-screen">
+    <img src="icon-192.png" alt="Neo Mobile" class="splash-icon">
+    <div class="splash-title">Neo Mobile</div>
+    <div class="splash-subtitle">Agility Ortho</div>
+    <div class="splash-blurb">Ask Neo anything — surgeons, trays, sales, intel.</div>
+    <div class="splash-arrow">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+    </div>
+  </div>
+
+  <!-- LOGIN SCREEN -->
+  <div id="loginScreen" class="login-screen">
+    <div class="login-logo">Neo Mobile</div>
+    <div class="login-sub">Agility Ortho</div>
+    <div class="login-card">
+      <!-- Step 1: Email -->
+      <div id="loginStep1">
+        <h2>Sign in with your email</h2>
+        <input type="email" id="loginEmail" class="form-input" placeholder="you@agilityortho.com" autocomplete="email" autofocus>
+        <button class="btn-submit" style="margin-top:12px;" onclick="sendOTP()">Send Code</button>
+        <div id="loginError1" class="login-error" style="display:none;"></div>
+      </div>
+      <!-- Step 2: OTP Code -->
+      <div id="loginStep2" style="display:none;">
+        <h2>Enter the 8-digit code</h2>
+        <div class="login-hint" id="loginEmailHint"></div>
+        <input type="text" id="loginCode" class="form-input" placeholder="12345678" maxlength="8" inputmode="numeric" autocomplete="one-time-code" style="text-align:center;font-size:24px;letter-spacing:4px;margin-top:12px;">
+        <button class="btn-submit" style="margin-top:12px;" onclick="verifyOTP()">Verify</button>
+        <div id="loginError2" class="login-error" style="display:none;"></div>
+        <div class="login-back" onclick="showStep1()">Use a different email</div>
+      </div>
+      <!-- Loading state -->
+      <div id="loginLoading" style="display:none;text-align:center;padding:24px;">
+        <div class="spinner" style="border-color:var(--gray-300);border-top-color:var(--blue-600);width:28px;height:28px;"></div>
+        <div style="margin-top:12px;font-size:14px;color:var(--gray-500);">Signing in...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN APP -->
+  <div id="appShell" style="display:none;">
+    <div class="header">
+      <div>
+        <h1>Neo Mobile</h1>
+        <div class="header-sub">Agility Ortho</div>
+      </div>
+      <div class="header-user-wrapper">
+        <div class="header-user" id="headerUser" onclick="toggleHeaderMenu(event)"></div>
+        <div class="header-menu" id="headerMenu">
+          <div class="header-menu-email" id="headerMenuEmail"></div>
+          <div class="header-menu-item" onclick="resetChat()">New conversation</div>
+          <div class="header-menu-item danger" onclick="confirmLogout()">Sign Out</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div id="chatMode" class="chat-mode">
+        <div id="chatThread" class="chat-thread" aria-live="polite"></div>
+        <div class="chat-composer">
+          <input type="text" id="chatInput" class="chat-input" placeholder="Tap mic or type..." oninput="updateComposerButton()" onkeydown="if(event.key==='Enter'){event.preventDefault();sendText();}" />
+          <button type="button" id="micBtn" class="mic-btn" onclick="toggleRecording()" aria-label="Record voice">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          </button>
+          <button type="button" id="sendBtn" class="send-btn" onclick="sendText()" aria-label="Send" style="display:none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+        <div class="reset-row">
+          <button type="button" class="reset-link" onclick="resetChat()">Start over</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ============================================================
+// CONFIG — oso-tray-tracker (shared with Field Notes)
+// ============================================================
+const SUPABASE_URL = 'https://pchhtltxdcmvdcwnwaeg.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjaGh0bHR4ZGNtdmRjd253YWVnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4MjQzODMsImV4cCI6MjA5MDQwMDM4M30.jeK_Xm2ypDfcp8qJj5Y1l-jZEa4sRTkoDv4AM7g5A2s';
+const EDGE_FUNCTION = 'neo-mobile-chat';
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ============================================================
+// STATE
+// ============================================================
+let currentUser = null;   // rep record from reps table
+let authUser = null;      // Supabase Auth user
+let chatHistory = [];     // conversation array sent to the edge function
+let chatBusy = false;     // true while waiting for Neo
+
+// Voice recording
+let mediaRecorder = null;
+let recordChunks = [];
+let recordMime = '';
+let audioContext = null;
+let silenceTimer = null;
+let recordStream = null;
+let recordStartTime = 0;
+const SILENCE_MS = 1500;        // auto-stop after 1.5s of silence
+const SILENCE_THRESHOLD = 8;    // amplitude threshold (0-255 scale)
+const MIN_RECORD_MS = 600;      // require at least 0.6s of recording before auto-stop fires
+const MAX_RECORD_MS = 60000;    // hard cap 60s
+
+// ============================================================
+// SPLASH — swipe up (or tap) to dismiss
+// ============================================================
+let splashReady = false;
+(function initSplashGesture() {
+  const splash = document.getElementById('splashScreen');
+  if (!splash) return;
+  let startY = 0;
+
+  splash.addEventListener('touchstart', (e) => {
+    if (!splashReady) return;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+
+  splash.addEventListener('touchmove', (e) => {
+    if (!splashReady) return;
+    const dy = startY - e.touches[0].clientY;
+    if (dy > 0) {
+      splash.style.transform = `translateY(${-dy}px)`;
+    }
+  }, { passive: true });
+
+  splash.addEventListener('touchend', (e) => {
+    if (!splashReady) return;
+    const dy = startY - e.changedTouches[0].clientY;
+    if (dy > 60) {
+      splash.classList.add('dismissed');
+      setTimeout(() => splash.remove(), 500);
+    } else {
+      splash.style.transform = '';
+    }
+  });
+
+  splash.addEventListener('click', () => {
+    if (!splashReady) return;
+    splash.classList.add('dismissed');
+    setTimeout(() => splash.remove(), 500);
+  });
+})();
+
+function splashIsReady() {
+  splashReady = true;
+}
+
+// ============================================================
+// AUTH — Supabase Email OTP
+// ============================================================
+async function init() {
+  showLoading(true);
+
+  const { data: { session } } = await sb.auth.getSession();
+
+  if (session) {
+    authUser = session.user;
+    await loadRepAndEnter();
+    splashIsReady();
+  } else {
+    showLoading(false);
+    showStep1();
+    splashIsReady();
+  }
+
+  sb.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'SIGNED_IN' && session && !currentUser) {
+      authUser = session.user;
+      await loadRepAndEnter();
+    }
+  });
+}
+
+async function loadRepAndEnter() {
+  const { data: reps, error } = await sb.from('reps').select('*').eq('active', true);
+  if (error) {
+    showLoading(false);
+    showLoginError(1, 'Error loading team: ' + error.message);
+    return;
+  }
+  const rep = (reps || []).find(r => r.email && r.email.toLowerCase() === authUser.email.toLowerCase());
+  if (!rep) {
+    showLoading(false);
+    showLoginError(1, 'No team member found for ' + authUser.email + '. Contact John.');
+    await sb.auth.signOut();
+    return;
+  }
+
+  currentUser = rep;
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appShell').style.display = 'block';
+  document.getElementById('headerUser').textContent = rep.name.split(' ')[0] + ' ▾';
+  initChat();
+}
+
+function showLoading(show) {
+  document.getElementById('loginStep1').style.display = 'none';
+  document.getElementById('loginStep2').style.display = 'none';
+  document.getElementById('loginLoading').style.display = show ? 'block' : 'none';
+}
+
+function showStep1() {
+  document.getElementById('loginStep1').style.display = 'block';
+  document.getElementById('loginStep2').style.display = 'none';
+  document.getElementById('loginLoading').style.display = 'none';
+  document.getElementById('loginError1').style.display = 'none';
+  document.getElementById('loginEmail').focus();
+}
+
+function showStep2() {
+  document.getElementById('loginStep1').style.display = 'none';
+  document.getElementById('loginStep2').style.display = 'block';
+  document.getElementById('loginLoading').style.display = 'none';
+  document.getElementById('loginError2').style.display = 'none';
+  document.getElementById('loginCode').value = '';
+  document.getElementById('loginCode').focus();
+}
+
+function showLoginError(step, msg) {
+  const el = document.getElementById('loginError' + step);
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+async function sendOTP() {
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+  if (!email) { showLoginError(1, 'Please enter your email'); return; }
+
+  document.getElementById('loginError1').style.display = 'none';
+  const btn = document.querySelector('#loginStep1 .btn-submit');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+
+  const { error } = await sb.auth.signInWithOtp({ email });
+
+  btn.disabled = false;
+  btn.textContent = 'Send Code';
+
+  if (error) {
+    showLoginError(1, error.message);
+    return;
+  }
+
+  document.getElementById('loginEmailHint').textContent = 'Check ' + email + ' for an 8-digit code';
+  showStep2();
+}
+
+async function verifyOTP() {
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+  const code = document.getElementById('loginCode').value.trim();
+  if (!code || code.length < 6) { showLoginError(2, 'Please enter the full code'); return; }
+
+  document.getElementById('loginError2').style.display = 'none';
+  const btn = document.querySelector('#loginStep2 .btn-submit');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+
+  const { error } = await sb.auth.verifyOtp({ email, token: code, type: 'email' });
+
+  btn.disabled = false;
+  btn.textContent = 'Verify';
+
+  if (error) {
+    showLoginError(2, error.message);
+    return;
+  }
+
+  showLoading(true);
+}
+
+document.getElementById('loginEmail').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); sendOTP(); }
+});
+document.getElementById('loginCode').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); verifyOTP(); }
+});
+
+function toggleHeaderMenu(e) {
+  if (e) e.stopPropagation();
+  const menu = document.getElementById('headerMenu');
+  if (authUser && authUser.email) {
+    document.getElementById('headerMenuEmail').textContent = authUser.email;
+  }
+  menu.classList.toggle('open');
+}
+
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('headerMenu');
+  if (!menu) return;
+  if (!e.target.closest('.header-user-wrapper')) {
+    menu.classList.remove('open');
+  }
+});
+
+function confirmLogout() {
+  document.getElementById('headerMenu').classList.remove('open');
+  if (confirm('Sign out of Neo Mobile?')) logout();
+}
+
+async function logout() {
+  await sb.auth.signOut();
+  currentUser = null;
+  authUser = null;
+  document.getElementById('loginScreen').style.display = '';
+  document.getElementById('appShell').style.display = 'none';
+  showStep1();
+}
+
+// ============================================================
+// CHAT
+// ============================================================
+function initChat() {
+  chatHistory = [];
+  const thread = document.getElementById('chatThread');
+  thread.innerHTML = '';
+  const firstName = (currentUser && currentUser.name) ? currentUser.name.split(' ')[0] : '';
+  const greeting = firstName ? `Hi ${firstName}. What do you need?` : 'Hi. What do you need?';
+  appendChatBubble('assistant', greeting);
+}
+
+function resetChat() {
+  document.getElementById('headerMenu').classList.remove('open');
+  initChat();
+}
+
+function updateComposerButton() {
+  const input = document.getElementById('chatInput');
+  const sendBtn = document.getElementById('sendBtn');
+  const micBtn = document.getElementById('micBtn');
+  if (input.value.trim()) {
+    sendBtn.style.display = '';
+    micBtn.style.display = 'none';
+  } else {
+    sendBtn.style.display = 'none';
+    micBtn.style.display = '';
+  }
+}
+
+function toolCallLabel(name, input) {
+  if (name === 'lookup_entity')        return `Looking up "${input.query}"`;
+  if (name === 'get_surgeon_profile')  return `Pulling surgeon profile`;
+  if (name === 'get_location_profile') return `Pulling location profile`;
+  if (name === 'get_recent_notes')     return `Checking recent notes`;
+  if (name === 'get_tray_status')      return `Checking tray status`;
+  if (name === 'build_target_list')    return `Building target list`;
+  if (name === 'get_team_member')      return `Pulling team info`;
+  if (name === 'get_recent_sales')     return `Pulling recent sales`;
+  return name;
+}
+
+function appendChatBubble(role, text) {
+  const thread = document.getElementById('chatThread');
+  const div = document.createElement('div');
+  div.className = 'chat-bubble ' + role;
+  div.textContent = text;
+  thread.appendChild(div);
+  thread.scrollTop = thread.scrollHeight;
+  return div;
+}
+
+function appendChatSystem(text) {
+  const thread = document.getElementById('chatThread');
+  const div = document.createElement('div');
+  div.className = 'chat-bubble system';
+  div.textContent = text;
+  thread.appendChild(div);
+  thread.scrollTop = thread.scrollHeight;
+  return div;
+}
+
+function showTyping() {
+  const thread = document.getElementById('chatThread');
+  const div = document.createElement('div');
+  div.className = 'chat-typing';
+  div.id = 'chatTyping';
+  div.innerHTML = '<span></span><span></span><span></span>';
+  thread.appendChild(div);
+  thread.scrollTop = thread.scrollHeight;
+}
+
+function hideTyping() {
+  const el = document.getElementById('chatTyping');
+  if (el) el.remove();
+}
+
+async function sendText() {
+  if (chatBusy) return;
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  updateComposerButton();
+  appendChatBubble('user', text);
+  await sendToNeo({ text });
+}
+
+async function sendToNeo({ text, audioBase64, audioMime }) {
+  if (chatBusy) return;
+  chatBusy = true;
+  document.getElementById('sendBtn').disabled = true;
+  showTyping();
+
+  try {
+    const payload = { history: chatHistory };
+    if (audioBase64) {
+      payload.audio_base64 = audioBase64;
+      payload.audio_mime = audioMime || 'audio/webm';
+    } else {
+      payload.text = text;
+    }
+
+    const { data, error } = await sb.functions.invoke(EDGE_FUNCTION, { body: payload });
+    hideTyping();
+
+    if (error) throw error;
+    if (data.error) throw new Error(data.error);
+
+    if (data.transcript && audioBase64) {
+      const thread = document.getElementById('chatThread');
+      const lastBubble = thread.querySelector('.chat-bubble.user:last-of-type');
+      if (lastBubble && lastBubble.dataset.placeholder === '1') {
+        lastBubble.textContent = data.transcript;
+        delete lastBubble.dataset.placeholder;
+      } else {
+        appendChatBubble('user', data.transcript);
+      }
+    }
+
+    if (Array.isArray(data.tool_calls_made)) {
+      data.tool_calls_made.forEach(tc => {
+        appendChatSystem('🔍 ' + toolCallLabel(tc.name, tc.input || {}));
+      });
+    }
+
+    if (data.assistant_message) {
+      appendChatBubble('assistant', data.assistant_message);
+    }
+
+    chatHistory = data.updated_history || chatHistory;
+  } catch (err) {
+    hideTyping();
+    const errDiv = document.createElement('div');
+    errDiv.className = 'chat-error';
+    errDiv.textContent = 'Connection issue: ' + (err.message || err);
+    document.getElementById('chatThread').appendChild(errDiv);
+    document.getElementById('chatThread').scrollTop = document.getElementById('chatThread').scrollHeight;
+  } finally {
+    chatBusy = false;
+    document.getElementById('sendBtn').disabled = false;
+  }
+}
+
+// ============================================================
+// VOICE — Whisper via MediaRecorder + silence detection
+// ============================================================
+function pickAudioMime() {
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/mpeg', 'audio/wav'];
+  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+  for (const t of candidates) {
+    if (MediaRecorder.isTypeSupported(t)) return t;
+  }
+  return '';
+}
+
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+  }
+  document.getElementById('micBtn').classList.remove('recording');
+  if (silenceTimer) { clearInterval(silenceTimer); silenceTimer = null; }
+  if (audioContext) { try { audioContext.close(); } catch(_){} audioContext = null; }
+}
+
+async function toggleRecording() {
+  if (chatBusy) return;
+  const btn = document.getElementById('micBtn');
+
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    stopRecording();
+    return;
+  }
+
+  try {
+    recordStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recordMime = pickAudioMime();
+    recordChunks = [];
+    recordStartTime = Date.now();
+    mediaRecorder = recordMime
+      ? new MediaRecorder(recordStream, { mimeType: recordMime })
+      : new MediaRecorder(recordStream);
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) recordChunks.push(e.data);
+    };
+    mediaRecorder.onstop = async () => {
+      if (recordStream) { recordStream.getTracks().forEach(t => t.stop()); recordStream = null; }
+      const blob = new Blob(recordChunks, { type: mediaRecorder.mimeType || recordMime || 'audio/webm' });
+      if (blob.size === 0) return;
+      const placeholder = appendChatBubble('user', '🎤 transcribing…');
+      placeholder.dataset.placeholder = '1';
+      const base64 = await blobToBase64(blob);
+      await sendToNeo({ audioBase64: base64, audioMime: blob.type });
+    };
+    mediaRecorder.start();
+    btn.classList.add('recording');
+
+    // Silence detection — auto-stop after SILENCE_MS of quiet
+    const AC = window.AudioContext || window.webkitAudioContext;
+    audioContext = new AC();
+    const source = audioContext.createMediaStreamSource(recordStream);
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.6;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    let lastSoundAt = Date.now();
+    let hasSpoken = false;
+
+    silenceTimer = setInterval(() => {
+      analyser.getByteFrequencyData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i];
+      const avg = sum / data.length;
+      const now = Date.now();
+      if (avg > SILENCE_THRESHOLD) {
+        lastSoundAt = now;
+        hasSpoken = true;
+      }
+      const elapsed = now - recordStartTime;
+      if (hasSpoken && elapsed > MIN_RECORD_MS && now - lastSoundAt > SILENCE_MS) {
+        stopRecording();
+      } else if (elapsed > MAX_RECORD_MS) {
+        stopRecording();
+      }
+    }, 100);
+  } catch (err) {
+    const errDiv = document.createElement('div');
+    errDiv.className = 'chat-error';
+    errDiv.textContent = 'Mic blocked. Check Safari permissions, or type instead.';
+    document.getElementById('chatThread').appendChild(errDiv);
+    btn.classList.remove('recording');
+  }
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result || '';
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// ============================================================
+// SERVICE WORKER
+// ============================================================
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+// ============================================================
+// BOOT
+// ============================================================
+init();
+</script>
+
+</body>
+</html>
