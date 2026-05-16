@@ -233,9 +233,11 @@ async function executeTool(name: string, input: any): Promise<any> {
 
     const { data: recentNotes } = await supabase
       .from("field_notes")
-      .select("id, note_date, subject_text, tags, note_body, next_action, deleted_at")
+      .select("id, note_date, subject_text, tags, note_body, next_action")
       .eq("surgeon_id", input.surgeon_id)
       .is("deleted_at", null)
+      .or("status.is.null,status.eq.submitted")
+      .or("is_test.is.null,is_test.eq.false")
       .order("note_date", { ascending: false })
       .limit(5);
 
@@ -290,9 +292,11 @@ async function executeTool(name: string, input: any): Promise<any> {
 
     const { data: recentNotes } = await supabase
       .from("field_notes")
-      .select("id, note_date, subject_text, tags, note_body, next_action, deleted_at")
+      .select("id, note_date, subject_text, tags, note_body, next_action")
       .eq("location_id", input.location_id)
       .is("deleted_at", null)
+      .or("status.is.null,status.eq.submitted")
+      .or("is_test.is.null,is_test.eq.false")
       .order("note_date", { ascending: false })
       .limit(5);
 
@@ -381,6 +385,31 @@ function jsonResponse(body: any, status = 200): Response {
   });
 }
 
+function decodeJwtEmail(authHeader: string): { email: string | null; authUserId: string | null } {
+  const token = authHeader.replace(/^Bearer\s+/i, "");
+  if (!token) return { email: null, authUserId: null };
+  try {
+    const payloadB64 = token.split(".")[1] ?? "";
+    // base64url → base64
+    const b64 = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded));
+    return { email: payload.email ?? null, authUserId: payload.sub ?? null };
+  } catch (_) {
+    return { email: null, authUserId: null };
+  }
+}
+
+async function lookupRepId(email: string | null): Promise<number | null> {
+  if (!email) return null;
+  const { data } = await supabase
+    .from("reps")
+    .select("id")
+    .ilike("email", email)
+    .maybeSingle();
+  return data?.id ?? null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: CORS_HEADERS });
@@ -389,11 +418,37 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "POST only" }, 405);
   }
 
+  const { email: repEmail } = decodeJwtEmail(req.headers.get("Authorization") || "");
+  const repId = await lookupRepId(repEmail);
+  let userText = "";
+  let viaAudio = false;
+  let assistantMessage = "";
+  let toolCallsMade: any[] = [];
+  const totalUsage = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+
+  async function logInteraction(err?: string) {
+    try {
+      await supabase.from("neo_mobile_interactions").insert({
+        rep_id: repId,
+        rep_email: repEmail,
+        user_message: userText,
+        via_audio: viaAudio,
+        assistant_message: assistantMessage,
+        tool_calls_made: toolCallsMade,
+        usage: totalUsage,
+        error: err ?? null,
+      });
+    } catch (logErr) {
+      console.error("interaction log write failed", logErr);
+    }
+  }
+
   try {
     const body = await req.json();
     const history: any[] = Array.isArray(body.history) ? body.history : [];
-    let userText: string = (body.text ?? "").trim();
     let transcript: string | null = null;
+    viaAudio = !!body.audio_base64;
+    userText = (body.text ?? "").trim();
 
     if (body.audio_base64) {
       transcript = await transcribeAudio(body.audio_base64, body.audio_mime || "audio/webm");
@@ -405,9 +460,6 @@ Deno.serve(async (req) => {
     }
 
     const messages: any[] = [...history, { role: "user", content: userText }];
-    const toolCallsMade: any[] = [];
-    let assistantMessage = "";
-    const totalUsage = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
 
     for (let i = 0; i < 6; i++) {
       const resp = await callClaude(messages);
@@ -451,7 +503,9 @@ Deno.serve(async (req) => {
       messages.push({ role: "user", content: toolResults });
     }
 
-    console.log(JSON.stringify({ event: "neo_mobile_chat", usage: totalUsage, tool_calls: toolCallsMade.length }));
+    console.log(JSON.stringify({ event: "neo_mobile_chat", rep_id: repId, usage: totalUsage, tool_calls: toolCallsMade.length }));
+
+    await logInteraction();
 
     return jsonResponse({
       transcript,
@@ -462,6 +516,7 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     console.error("neo-mobile-chat error", err);
+    await logInteraction((err as Error).message);
     return jsonResponse({ error: (err as Error).message }, 500);
   }
 });

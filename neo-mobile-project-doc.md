@@ -2,157 +2,159 @@
 title: "Neo Mobile"
 cockpit: true
 domain: "Field"
-description: "Mobile-first PWA where John and the TMs can chat with Neo about anything in the CRM — pull surgeon history, build target lists, look up tray locations, surface recent intel. Forked from Field Notes V4.0.3 (~80% shared shell). Capture stays in Field Notes; Neo Mobile is the read/ask/act side."
-next_action: "Refactor index.html: strip Field Notes capture flow (form, confirm-and-edit modal, tags taxonomy, photo, soft-delete) → leave the chat shell. Then build the Neo Edge Function with v0 read tools (~5–8). Then deploy."
-rollout_target: "v0 = read-only CRM Q&A for John + 4 TMs. After each answer, Neo prompts 'want me to be able to do X too?' so the roadmap builds itself."
-build_machine: "Either — repo on GitHub, Vercel auto-deploys on push. Forking on the laptop."
+description: "Mobile-first PWA where John (and eventually 4 TMs) chat with Neo about anything in the CRM — pull surgeon history, build target lists, look up tray locations, surface recent intel. Forked from Field Notes V4.0.3 (~80% shared shell). Capture stays in Field Notes; Neo Mobile is the read/ask/act side."
+next_action: "John installs Neo Mobile as a PWA on his phone from https://neomobile.vercel.app, asks Neo a few real questions, and reports back on tone, transcription, latency, and which self-expansion offers Neo makes. Edge Function logs every turn to `neo_mobile_interactions` for roadmap data."
+rollout_target: "v0 LIVE in production. Read-only CRM Q&A for John. TMs added once tone/UX are dialed."
+build_machine: "Either — repo on GitHub, Vercel auto-deploys on push. Built session 1 on the laptop."
 ---
 
 # Neo Mobile — Living Project Document
-Last updated: 2026-05-16 | Session #1 (fork day — code copied, rebrand started, doc created)
+Last updated: 2026-05-16 | Session #1 (v0 BUILT AND SHIPPED — Edge Function + chat shell + Vercel deploy + interaction logging)
 
 ---
 
 ## 1. Project Identity
-- **What it is:** A mobile-first PWA where John and the TMs (Nick, Nate, Noah, Pat) chat with **Neo** about anything in the CRM — pull data, build lists, look up trays, draft outreach, surface intel.
-- **Goal:** John (and eventually each TM) taps an icon on the home screen, signs in once with an email code, and can ask Neo anything that's currently a 3-app dance: "Pull the last case Dr Petrucelli did," "Build me a target list for Orthocell in Nick's territory," "Where's GMN2258?", "Draft an email to Sue Lee at HSS asking about her August schedule." Voice or text. Conversational.
+- **What it is:** A mobile-first PWA where John (and eventually the TMs) chat with **Neo** about anything in the CRM — pull data, build lists, look up trays, draft outreach, surface intel.
+- **Goal:** John taps an icon on his home screen, signs in once with an email code, and asks Neo anything that's currently a 3-app dance. Voice or text. Conversational.
 - **Owner:** John Walsh
-- **Key people:** John (owner, primary user), Nick / Nate / Noah / Pat (TMs — Phase 2 users). S3 reps do NOT need this.
-- **Key systems/tools:** Supabase (`oso-tray-tracker` — same DB as Field Notes), Vercel (same team, separate project), GitHub (new repo `jwalshAO/neo-mobile`), Anthropic API (shared "Field Notes" workspace for billing visibility, or new "Neo" workspace — decide v0), OpenAI Whisper (same key as Field Notes)
+- **Key people:** John (owner, primary user). Nick, Nate, Noah, Pat (TMs, Phase 2 users). S3 reps NOT in scope.
+- **Key systems:** Supabase `oso-tray-tracker` (shared with Field Notes), Vercel team `agility-ortho`, GitHub `jwalshAO/neo-mobile`, Anthropic API (shared "Field Notes" workspace), OpenAI Whisper (shared key in Supabase secrets).
 - **Quick start:** To continue this project, say: `"continue Neo Mobile"`
 
 ---
 
 ## 2. Current Status
-**Fork day.** Code copied from Field Notes V4.0.3 → `/Users/johnwalsh/Codex/Projects/Neo Mobile/`. Manifest and service worker rebranded to "Neo Mobile" and `neo-mobile-v0-1`. `index.html` is still the unedited Field Notes V4.0.3 file — capture flow (form, tags taxonomy, photo, soft-delete, confirm-and-edit modal) needs to come out; chat shell + auth stay. No Edge Function yet, no GitHub repo yet, no Vercel project yet. Project doc just created.
+**v0 is LIVE in production at https://neomobile.vercel.app.** John installs as a PWA on his phone, signs in via email OTP, and chats with Neo (voice or text). The Edge Function calls Claude Haiku 4.5 with 6 read tools, fuzzy-matches CRM entities via `pg_trgm` + `dmetaphone`, and writes every turn to `neo_mobile_interactions` so we have data on what John asks + which write tools Neo offers to learn.
 
-The strategic concept was settled in Field Notes session 6 (2026-05-16): Q is for capture (one observation → one `field_notes` row); Neo Mobile is for everything else — open-ended CRM queries, list-building, lookups, drafts. Same Supabase auth, same Edge Function pattern (Whisper + Claude tool loop), same PWA shell — but broader system prompt, ~15–20 tools at maturity (start with ~5–8 read tools at v0), no confirm-and-edit screen.
+Neo's voice is calm, direct, brief. Distinct from Q's terse field-sidekick tone — Neo is the "senior colleague who knows the business." After each answer, IF the user's question implies a follow-up action Neo can't do yet (draft email, create task, build target list), Neo ends with one offer: "Want me to learn how to [action]?" Each yes becomes the next write tool to build.
+
+Not yet on phone: tone calibration from real use, icon design, splash blurb final wording. No write tools yet — by design.
 
 ---
 
 ## 3. What Exists (Artifacts & Files)
-- `/Users/johnwalsh/Codex/Projects/Neo Mobile/` — new project folder
-- `index.html` — copied from Field Notes V4.0.3, NOT yet refactored (still has capture flow)
-- `manifest.json` — rebranded to "Neo Mobile" ✓
-- `sw.js` — cache bumped to `neo-mobile-v0-1` ✓
-- `vercel.json` — copied as-is (rewrites + cache headers same as Field Notes)
-- `icon-192.png`, `icon-512.png`, `apple-touch-icon.png` — **placeholders** (still Field Notes kraft notebook). Need new Neo icon.
-- `.gitignore` — copied
+
+### Production stack (all live)
+- **Public URL:** https://neomobile.vercel.app (also https://neo-ao.vercel.app and https://neo-mobile-ao.vercel.app, all aliased to the same deployment)
+- **GitHub:** [`jwalshAO/neo-mobile`](https://github.com/jwalshAO/neo-mobile) — public, default branch `main`
+- **Vercel project:** `neo-mobile` (id `prj_pJFS54uDFLpqbmUgVYKxiUdv1coe`) under team `agility-ortho` (id `team_JdA1PzYEzjypAUH798UGodJJ`). Auto-deploys on push to main. SSO/password protection disabled (it's a PWA — must be publicly fetchable).
+- **Supabase Edge Function:** `neo-mobile-chat` v3 ACTIVE in `oso-tray-tracker` project (id `pchhtltxdcmvdcwnwaeg`). JWT-verified.
+
+### Code (in the repo)
+- `index.html` — 927 lines. Splash, login (email OTP), chat shell, Whisper voice recording with silence detection, mic↔send toggle. No capture flow, no notes feed, no confirm-and-edit. Endpoint: `neo-mobile-chat`.
+- `manifest.json` — PWA manifest (short_name: "Neo Mobile")
+- `sw.js` — Service worker (cache name `neo-mobile-v0-1`)
+- `vercel.json` — same SPA-style rewrites + cache headers as Field Notes
+- `supabase/functions/neo-mobile-chat/index.ts` — Edge Function source (~600 lines). Whisper + Claude Haiku 4.5 + tool-use loop + 6 read tools + interaction logging.
+- `icon-192.png`, `icon-512.png`, `apple-touch-icon.png` — **still Field Notes icons** (placeholder)
 - `neo-mobile-project-doc.md` — this file
 
-**Reused from Field Notes (no copy needed, shared at the platform layer):**
-- Supabase project `oso-tray-tracker` (pchhtltxdcmvdcwnwaeg) — surgeons / locations / reps / manufacturers / competitors / field_notes / trays
-- Supabase Auth (email OTP, persistent sessions, same reps table)
-- `pg_trgm` + `fuzzystrmatch` extensions (already enabled session 6)
-- `fn_lookup_entity` RPC — reusable as-is for entity disambiguation
-- OpenAI Whisper API key — reuse the existing Supabase secret
-- Anthropic API key — reuse OR new workspace (decide v0)
+### Database (added this session)
+- **`neo_mobile_interactions`** table (in `oso-tray-tracker`). Every chat turn writes one row: `rep_id`, `rep_email`, `user_message`, `via_audio`, `assistant_message`, `tool_calls_made` (jsonb), `usage` (jsonb token counts), `error`, `created_at`. RLS: only the rep with `role = 'Owner'` can read; Edge Function writes via service_role. Indexed on `rep_id` and `created_at`. **This is the roadmap engine** — what John asks and what Neo offers builds the v0.1 tool list.
+
+### Reused from Field Notes (no changes)
+- Supabase project `oso-tray-tracker` (`pchhtltxdcmvdcwnwaeg`) — same DB, same auth, same reps table
+- `pg_trgm` + `fuzzystrmatch` extensions
+- `fn_lookup_entity` RPC (fuzzy match across surgeons / locations / manufacturers / competitors)
+- `fn_recent_notes_about` RPC
+- `ANTHROPIC_API_KEY` + `OPENAI_API_KEY` (Supabase secrets, shared workspace "Field Notes")
+- Whisper proper-noun priming prompt (manufacturers + competitors + top hospitals + procedures)
 
 ---
 
-## 4. Settled Decisions
-- **Separate project, not a Field Notes mode** — Capture is high-frequency / low-cognition (S3 reps too). Q&A is low-frequency / high-cognition (John + TMs only). Different users, different UX, different system prompts. (Decided Field Notes session 6, locked here.)
-- **80% code share from Field Notes V4.0.3** — Same PWA shell, same auth, same chat UI, same Whisper + Claude tool-loop Edge Function pattern. Diverges in: system prompt, tool set, no confirm-and-edit modal, no form, no tags, no photo, no soft-delete UI. (This session.)
-- **Assistant name = Neo** — Matches the broader Codex "Neo" brand. Q remains Field Notes-specific. (This session.)
-- **v0 scope = read-only CRM Q&A** — ~5–8 read tools. No writes, no email drafts, no task creation. Build trust on read before opening writes. (This session.)
-- **Self-expanding roadmap pattern** — After answering, Neo proposes the next capability the user just hinted at needing ("I can't draft emails yet — want me to learn?"). Each "yes" becomes the next tool. The user-driven roadmap replaces upfront 15-tool spec. (This session.)
-- **User base for v0** — John only, until the loop feels right. TMs join when v0 is steady. S3 reps never (out of scope). (This session.)
-- **Vercel: same team / account, new project** — Separate Vercel project so the domain / deploy hooks / build logs don't collide with Field Notes. Same Vercel team so billing + secrets management stay unified. (This session.)
-- **Supabase: one DB** — `oso-tray-tracker` continues as the single operational DB. No new project. (Inherited from Field Notes.)
-- **Voice runtime: Whisper API** — Inherited from Field Notes session 5. Same proper-noun priming list (manufacturers + competitors + top hospitals + procedures). (Inherited.)
-- **Model: Haiku 4.5 for chat turns** — Same as Field Notes V4.0.3. Re-evaluate at v0.1 if multi-step reasoning over CRM data needs Sonnet. (Inherited, revisit.)
-- **No confirm-and-edit modal** — Neo Mobile produces answers in chat, not `field_notes` rows. Tool calls render as system bubbles same as Field Notes. (This session.)
+## 4. v0 Tools (6 deployed)
+
+All wired to the same Supabase service-role connection. Smoke-tested against real data in session 1.
+
+| Tool | What it returns | Backend |
+|------|-----------------|---------|
+| `lookup_entity(query, kinds[])` | Fuzzy match → up to 12 ranked candidates from surgeons/locations/manufacturers/competitors | `fn_lookup_entity` RPC |
+| `get_surgeon_profile(surgeon_id)` | Surgeon row + locations they operate at + 5 most recent field notes | Direct SELECT + `surgeon_locations` two-step join |
+| `get_location_profile(location_id)` | Location + territory + assigned TM rep + surgeons there + 5 most recent field notes | Direct SELECT + `surgeon_locations` two-step join |
+| `get_recent_notes(entity_kind, entity_id, days)` | Recent field notes (default 60 days) | `fn_recent_notes_about` RPC |
+| `get_team_member(rep_id or name)` | Rep row + territory | Direct SELECT + ilike on name |
+| `get_tray_status(serial)` | Tray rows matching serial + tray_type description | `trays` + `tray_types` join by prefix |
 
 ---
 
-## 5. v0 Plan — Read-Only CRM Q&A with Self-Expansion
-
-### 5.1 What v0 does
-John opens Neo Mobile on his phone → signs in (email OTP, persistent) → lands on chat with Neo → taps mic or types → asks anything in scope of the v0 tools → Neo answers in chat, surfaces tool calls inline, ends with one of:
-- "Want me to do X too?" (proposes a write/draft tool John just implicitly asked for)
-- "Anything else?" (open-ended)
-- Silent if the answer is fully contained.
-
-### 5.2 v0 read tools (target ~5–8)
-First-pass list — refine when refactoring the Edge Function:
-1. **`lookup_entity(query, kinds[])`** — already exists as `fn_lookup_entity` RPC; same fuzzy match as Field Notes
-2. **`get_surgeon_profile(surgeon_id)`** — names, NPI, specialty, status, primary hospital, recent activity, recent field notes
-3. **`get_location_profile(location_id)`** — facility name, territory, assigned rep, surgeons known to operate there, recent field notes
-4. **`get_recent_notes(entity_kind, entity_id, days)`** — already exists as `fn_recent_notes_about`; reuse
-5. **`get_tray_status(tray_id_or_query)`** — current location / consignment status / last-seen date for a tray. Pulls from tray inventory table.
-6. **`build_target_list(criteria)`** — query surgeons by territory / manufacturer / status / funnel stage / recency. Returns ranked list.
-7. **`get_team_member(rep_name_or_id)`** — TM / rep info: territory, accounts, contact, role
-8. **`get_recent_sales(filters)`** — recent SD revenue rows by rep / surgeon / facility / manufacturer
-
-### 5.3 Out of scope for v0 (deferred)
-- Drafting emails (Gmail API)
-- Creating Todoist tasks
-- Updating surgeon flags / status / next-touch dates in CRM
-- Reading/writing Order PO automation data
-- Tray reassignment / movement requests
-- Anything that mutates Supabase rows
-
-The **self-expansion pattern** means v0 surfaces demand for these without us pre-building them.
-
-### 5.4 Build sequence
-1. Refactor `index.html`: strip Field Notes capture flow (form, confirm-and-edit modal, tags taxonomy, photo, soft-delete), keep chat shell + composer + auth + Whisper + mic/text toggle. Rename "Q" → "Neo" everywhere in UI strings. Drop the Notes Feed entirely.
-2. Author Neo system prompt: identity, tone (Neo = Codex assistant, professional but warm, brief but not curt; distinct from Q's terse field-sidekick voice), tool-use rules, self-expansion ending pattern.
-3. Stand up `neo-mobile-chat` Edge Function: same skeleton as `field-notes-chat`, but new system prompt + tools. Reuse Whisper. Anthropic prompt caching from day one.
-4. Build the v0 read tools (5.2). Most map 1:1 to RPCs already in `oso-tray-tracker` or simple SELECTs.
-5. Create GitHub repo `jwalshAO/neo-mobile`, push, link to new Vercel project under same team.
-6. Test on John's phone for a few days. Tone calibration, transcription quality, latency, tool selection.
-7. Capture the "want me to also do X" responses → roadmap.
-
-### 5.5 Cost model
-Inherited from Field Notes (~$0.05 / interaction). Neo Mobile interactions will average longer than Field Notes (more tool calls, denser answers) — assume $0.10 / interaction as planning number. John alone at 10 interactions/day → ~$20/mo. With 4 TMs added at 5/day each → ~$50–80/mo. Round to **$50/mo budget cap** at v0, raise once usage is real.
-
-### 5.6 Open questions (v0)
-- **Anthropic workspace** — reuse the existing "Field Notes" workspace (simpler, mixed billing) or new "Neo Mobile" workspace (cleaner separation)? Default = reuse for v0, split if costs need attribution.
-- **Splash screen / motivational blurb** — Field Notes has one ("Every note you capture..."). Neo Mobile needs its own framing for John, or skip splash entirely for a single-power-user app?
-- **Icon** — Field Notes is kraft notebook with "Field Notes" text. Neo Mobile needs its own. Defer until v0 functional.
-- **Naming on home screen** — "Neo Mobile" or just "Neo"? Lean "Neo" (shorter, cleaner, matches assistant name). Trade-off: ambiguous vs. desktop Neo. Decide before first install.
+## 5. Settled Decisions
+- **Separate project, not a Field Notes mode** — Capture is high-frequency / low-cognition (S3 reps too). Q&A is low-frequency / high-cognition (John + TMs only). Different users, different UX, different system prompts.
+- **80% code share from Field Notes V4.0.3** — Same PWA shell, same auth, same chat UI, same Whisper + Claude tool-loop Edge Function pattern. Diverges in: system prompt, tool set, no confirm-and-edit modal, no form, no tags, no photo, no soft-delete UI.
+- **Assistant name = Neo** — Mobile sibling of the desktop Codex assistant. Q remains Field Notes-specific.
+- **Voice = Neo, calm/direct/professional** — distinct from Q's terse Bond Q-Branch sidekick tone. "Senior colleague who knows the business." No exclamation points, no emojis, no "honestly/frankly/real talk."
+- **v0 scope = read-only CRM Q&A** — 6 read tools. No writes, no email drafts, no task creation. Build trust on read first.
+- **Self-expansion roadmap pattern** — After answering, IF the user implies a follow-up action Neo can't do yet, Neo ends with one offer: "Want me to learn how to [action]?" Saying yes goes on the v0.1 roadmap. Logged in `neo_mobile_interactions` for analysis.
+- **User base for v0** — John only, until the loop feels right. TMs join when v0 is steady.
+- **Vercel: same team, separate project** — Unified billing + secrets, isolated deploys/domain. Vercel SSO/password protection DISABLED for PWA accessibility.
+- **Supabase: one DB** — `oso-tray-tracker` continues as the single operational DB.
+- **Whisper + Haiku 4.5** — Inherited from Field Notes. Re-evaluate model if multi-tool queries need more reasoning.
+- **No confirm-and-edit modal** — Neo Mobile produces answers in chat, not `field_notes` rows.
+- **Interaction logging from day one** — Every turn → `neo_mobile_interactions`. This is the v0.1 roadmap data.
+- **Use `neomobile.vercel.app` as the primary URL** — `neo-mobile.vercel.app` is taken globally; chose the no-hyphen variant. `neo-ao.vercel.app` and `neo-mobile-ao.vercel.app` also alias the same deployment (in case we change preference later).
 
 ---
 
 ## 6. Active Work Items
-- [ ] **Refactor `index.html`** — strip capture flow, keep chat shell, rebrand "Q" → "Neo" in strings, drop Notes Feed view. ← NEXT
-- [ ] Author Neo system prompt (tone, self-expansion ending rule)
-- [ ] Build `neo-mobile-chat` Edge Function (clone `field-notes-chat`, swap system prompt + tools)
-- [ ] Implement 5–8 v0 read tools as Postgres functions or in-Edge-Function SELECTs
-- [ ] Create `jwalshAO/neo-mobile` GitHub repo + push
-- [ ] Provision Vercel project (same team), wire domain
-- [ ] Test on phone — John, real queries, a few days
-- [ ] Capture "want me to also do X" answers → write-tool roadmap
 
-**Deploy command (once repo + Vercel set up):**
+**Done session 1 (2026-05-16):**
+- [x] Fork code from Field Notes V4.0.3 → `/Users/johnwalsh/Codex/Projects/Neo Mobile/`
+- [x] Refactor `index.html` from 2126 → 927 lines (strip capture, tags, photo, feed, modals)
+- [x] Rebrand manifest + service worker
+- [x] Write Neo system prompt (voice + self-expansion pattern)
+- [x] Build Edge Function `neo-mobile-chat` with 6 read tools + Anthropic prompt caching
+- [x] Smoke-test all 6 tools against real data (Petrucelli, Lankenau, Nick Diiorio, GMN trays)
+- [x] Create `neo_mobile_interactions` log table with RLS
+- [x] Wire Edge Function to log every turn (rep_id from JWT, message, tools, usage)
+- [x] Create GitHub repo `jwalshAO/neo-mobile`, push
+- [x] Create Vercel project, link to GitHub, disable SSO, deploy
+- [x] Claim short URLs: `neomobile.vercel.app`, `neo-ao.vercel.app`, `neo-mobile-ao.vercel.app`
+- [x] Permissions allowlist for Codex worktree (Supabase MCP writes, Vercel MCP, git/gh, file ops; denied destructive commands)
+
+**Next (in priority order):**
+- [ ] **John installs on phone + tests real queries** — tone calibration, transcription accuracy, latency, see whether Neo's self-expansion offers feel natural
+- [ ] Review `neo_mobile_interactions` log after a day of use → build the v0.1 write tool John says yes to most
+- [ ] Replace placeholder Field Notes icons (kraft notebook) with a Neo-specific icon
+- [ ] Settle splash blurb (currently "Ask Neo anything — surgeons, trays, sales, intel.")
+- [ ] Settle Anthropic workspace decision (reuse "Field Notes" workspace, or split off "Neo Mobile")
+- [ ] v0.1 — first write tool (depends on log data; likely Todoist task or Gmail draft)
+
+**Deploy command (for index.html / vercel.json / manifest / sw.js changes):**
 ```
 cd "/Users/johnwalsh/Codex/Projects/Neo Mobile" && git add . && git commit -m "v0.x: ..." && git push origin main
 ```
 
+**Redeploy Edge Function (for `supabase/functions/neo-mobile-chat/index.ts` changes):**
+Via Supabase MCP `deploy_edge_function` from this session, OR via Supabase CLI if you're at the office.
+
 ---
 
 ## 7. Open Questions & Blockers
-- v0 read-tool selection — final list of 5–8 (current candidates in §5.2)
-- Anthropic workspace decision (reuse vs. new)
-- Icon design + home-screen short name
-- Splash screen — keep, replace, or drop
+- **Tone calibration** — John's real-phone test will tell us. The system prompt rules ("brief, direct, no fluff, no exclamations") will likely need 1-2 rounds of tuning.
+- **Transcription quality** — Whisper proper-noun priming is the same as Field Notes (which works). But Neo Mobile queries may include more sales/finance vocabulary not in the priming list. Watch logs.
+- **Self-expansion offer trigger threshold** — Will Neo offer too often (annoying), too rarely (no roadmap data), or about right? Live use answers it.
+- **Icon design** — placeholder is Field Notes kraft notebook with "Field Notes" text. Needs Neo-specific design. Defer until v0.1.
+- **Splash screen** — currently has motivational-free framing. Decide: keep, replace, or drop entirely for a single-power-user app.
+- **Naming on phone home screen** — currently "Neo Mobile". Consider just "Neo" (shorter, matches assistant name) — would conflict with "Neo" the desktop assistant? Maybe fine.
+- **`neo-mobile.vercel.app` is taken globally** — using `neomobile.vercel.app` instead. Long-term, consider buying a real domain if John wants something custom.
 
 ---
 
 ## 8. Constraints & Preferences
 - Light/white backgrounds only
 - Terminal commands in one shot
-- All files inside `/Users/johnwalsh/Codex`
+- All code files inside `/Users/johnwalsh/Codex/`
 - Git push workflow only — Vercel auto-deploys on push
 - `oso-tray-tracker` project ID: `pchhtltxdcmvdcwnwaeg`
-- GitHub repo (planned): `jwalshAO/neo-mobile`
-- Vercel URL (planned): `neo-mobile.vercel.app` (or domain TBD)
-- Reuse Whisper key + RPCs from Field Notes — do NOT duplicate
+- Vercel team ID: `team_JdA1PzYEzjypAUH798UGodJJ` (slug `agility-ortho`)
+- Vercel project ID: `prj_pJFS54uDFLpqbmUgVYKxiUdv1coe`
+- GitHub: `jwalshAO/neo-mobile`
+- Reuse Whisper + Anthropic keys from Field Notes (Supabase secrets) — do NOT duplicate
+- Edge Function source is version-controlled at `supabase/functions/neo-mobile-chat/index.ts` — keep it in sync with the deployed version
 
 ---
 
 ## 9. Background Context
-- Agility Ortho — upper extremity orthopedic distribution, Eastern/Central PA, South NJ, Northern DE
+- Agility Orthopaedic — upper extremity orthopedic distribution, Eastern/Central PA, South NJ, Northern DE
 - 11 team members: John (owner), 4 TMs (Nate, Nick, Noah, Pat), 6 S3 reps
 - Field Notes (sibling project) handles CAPTURE — reps write field intel into the CRM via Q-the-sidekick. Live at https://field-intel-webapp.vercel.app since 2026-05-16.
 - Neo Mobile handles ASK / ACT — John (and eventually TMs) query and operate the CRM via Neo.
@@ -162,4 +164,13 @@ cd "/Users/johnwalsh/Codex/Projects/Neo Mobile" && git add . && git commit -m "v
 ---
 
 ## 10. History Log
-- 2026-05-16 — Session 1 (fork day): Forked Field Notes V4.0.3 → new `/Users/johnwalsh/Codex/Projects/Neo Mobile/` folder. Copied `index.html` / `manifest.json` / `sw.js` / `vercel.json` / icons / `.gitignore`. Rebranded `manifest.json` ("Neo Mobile — Agility Ortho", short_name "Neo Mobile") and `sw.js` (`CACHE_NAME = 'neo-mobile-v0-1'`). Decisions locked: separate project (not Field Notes mode), assistant name = Neo, v0 = read-only CRM Q&A with self-expansion pattern, John-only at v0, same Vercel team but separate project, reuse Supabase + Whisper. Wrote this project doc.
+- 2026-05-16 — Session 1 (fork day → live in production, single session):
+  - Forked Field Notes V4.0.3. Stripped capture flow from `index.html` (2126 → 927 lines). Rebranded manifest + service worker.
+  - Wrote Neo system prompt (calm/direct/brief voice, self-expansion pattern).
+  - Built Edge Function `neo-mobile-chat` with 6 read tools: `lookup_entity`, `get_surgeon_profile`, `get_location_profile`, `get_recent_notes`, `get_team_member`, `get_tray_status`. Reuses Field Notes RPCs (`fn_lookup_entity`, `fn_recent_notes_about`). Anthropic prompt caching on system+tools, Haiku 4.5 model.
+  - Caught schema bugs pre-deploy: trays use `serial`/`tray_type` (text) not `serial_number`/`tray_type_id`; no FKs on `surgeon_locations` so PostgREST nested selects fail (fixed with two-step manual joins). Smoke-tested all 6 tools against Petrucelli (id 1139, Lankenau), Lankenau Medical Center (id 43, territory Philadelphia, rep Nick Diiorio), and `GMN` trays.
+  - Created `neo_mobile_interactions` log table with RLS (Owner reads, service_role writes). Wired Edge Function to JWT-decode rep email → look up rep_id → log every turn (message, tools, usage, error). Deployed v3.
+  - Created GitHub repo `jwalshAO/neo-mobile` (public). Initial commit + empty trigger commit. Created Vercel project linked to repo via REST API. First deploy READY. Disabled Vercel SSO (was gating with 401). Claimed three short aliases: `neomobile.vercel.app`, `neo-ao.vercel.app`, `neo-mobile-ao.vercel.app`.
+  - Set up Codex permissions allowlist (Supabase MCP writes, Vercel MCP, git/gh prefixes, file ops; denied destructive commands). Lives in `.claude/settings.local.json` (gitignored).
+  - All 6 candidate tools from §4 deployed. `get_recent_sales` and `build_target_list` left out of v0 — will surface via self-expansion if John asks for them.
+  - **Edge Function v4 (later in same session):** Discovered Field Notes had shipped Session 7 in parallel (Brain v1 LIVE + `is_test` flag + `status` lifecycle + 90 synthetic test notes). Without filters, Neo's `get_surgeon_profile` / `get_location_profile` / `get_recent_notes` would surface fictional test notes as if real. Fixed in two places: (1) updated `fn_recent_notes_about` RPC via migration `fn_recent_notes_filter_test_and_draft` to filter `is_test=false AND (status IS NULL OR status='submitted')` — benefits Field Notes V4 chat too. (2) Updated direct queries in the Edge Function with the same PostgREST filter chain. Deployed v4.
