@@ -1,5 +1,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  caldavConfigured,
+  discoverCalendarHome,
+  findCalendarUrls,
+  queryCalendarEvents,
+  parseVEvent,
+  parseCaseSummary,
+} from "./caldav.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY")!;
@@ -10,6 +18,8 @@ const TODOIST_API_TOKEN =
   Deno.env.get("Todoist-API-Token") ??
   Deno.env.get("todoist_api_token") ??
   "";
+
+const ICLOUD_CALENDARS = (Deno.env.get("ICLOUD_CALENDARS") ?? "Work,Private").split(",").map(s => s.trim()).filter(Boolean);
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -40,10 +50,10 @@ WHAT YOU CAN DO TODAY
 - Create a Todoist task when the user mentions an action they need to take
 - Pull sales/revenue numbers (get_sales): aggregate revenue + case count for any entity over any window, with optional YoY/MoM comparison and group-by breakdowns
 - List recent surgical cases (get_recent_cases) by surgeon, location, or rep
+- List upcoming scheduled cases (get_upcoming_cases) from John's iCloud calendars (Work + Private). Non-case events (meetings, conferences, labs, meals) are filtered out automatically.
 
 YOU CANNOT YET (use the self-expansion pattern below)
 - Draft emails, update the CRM, schedule calendar events, send messages, or anything else that writes.
-- See upcoming/scheduled cases — case_usage is post-case only. (get_upcoming_cases is on the v0.2 list, pending iCloud setup.)
 - Build target lists or filtered surgeon searches.
 
 SALES & CASE QUERIES — guidance
@@ -255,6 +265,21 @@ const TOOLS = [
         limit: { type: "integer", description: "Default 5." }
       },
       required: ["entity_kind"]
+    }
+  },
+  {
+    name: "get_upcoming_cases",
+    description: "List upcoming/scheduled surgical cases from John's iCloud calendars (Work + Private). Answers: 'How many cases do I have tomorrow?', 'What's on the schedule next week?', 'Any cases at Lankenau this Friday?'. Reads via CalDAV in real time. Non-case events (meetings, conferences, cadaver labs, meals, travel, PTO) are filtered out. Cancelled cases (marked with ❌ or X-prefix or 'cancel') are excluded by default.",
+    input_schema: {
+      type: "object",
+      properties: {
+        range: { type: "string", enum: ["today", "tomorrow", "this_week", "next_week", "next_7_days", "next_14_days", "next_30_days", "custom"], description: "Date range. 'this_week' = today through Sunday. 'next_week' = next Monday through Sunday." },
+        custom_start: { type: "string", description: "ISO date (YYYY-MM-DD) when range='custom'." },
+        custom_end: { type: "string", description: "ISO date (YYYY-MM-DD) when range='custom'." },
+        include_cancelled: { type: "boolean", description: "Default false. Set true to include cases marked cancelled." },
+        surgeon_lastname: { type: "string", description: "Optional: filter to cases featuring this surgeon (case-insensitive substring match on event summary)." }
+      },
+      required: ["range"]
     }
   }
 ];
@@ -698,6 +723,75 @@ async function executeTool(name: string, input: any): Promise<any> {
       ...c,
       location_name: c.location_id ? locMap.get(c.location_id) ?? null : null,
     }));
+  }
+
+  if (name === "get_upcoming_cases") {
+    const cfg = caldavConfigured();
+    if (!cfg.ok) throw new Error(`iCloud not configured. Add app-specific password to Supabase secrets. Seen: ${JSON.stringify(cfg.seen)}`);
+    // Resolve range to [start, end] dates (inclusive)
+    const now = new Date();
+    now.setUTCHours(0, 0, 0, 0);
+    const addDays = (d: Date, n: number) => { const r = new Date(d); r.setUTCDate(r.getUTCDate() + n); return r; };
+    let start: Date, end: Date, label: string;
+    const dow = now.getUTCDay() || 7; // ISO Monday=1
+    switch (input.range) {
+      case "today":          start = now;                                end = now;                                label = "today"; break;
+      case "tomorrow":       start = addDays(now, 1);                    end = addDays(now, 1);                    label = "tomorrow"; break;
+      case "this_week":      start = now;                                end = addDays(now, 7 - dow);              label = "this week"; break;
+      case "next_week":      start = addDays(now, 8 - dow);              end = addDays(now, 14 - dow);             label = "next week"; break;
+      case "next_7_days":    start = now;                                end = addDays(now, 7);                    label = "next 7 days"; break;
+      case "next_14_days":   start = now;                                end = addDays(now, 14);                   label = "next 14 days"; break;
+      case "next_30_days":   start = now;                                end = addDays(now, 30);                   label = "next 30 days"; break;
+      case "custom":
+        if (!input.custom_start || !input.custom_end) throw new Error("custom range requires custom_start and custom_end");
+        start = new Date(input.custom_start + "T00:00:00Z");
+        end = new Date(input.custom_end + "T00:00:00Z");
+        label = `${input.custom_start} to ${input.custom_end}`;
+        break;
+      default: throw new Error(`Unknown range: ${input.range}`);
+    }
+    // End is end-of-day for inclusive range
+    const endInclusive = new Date(end);
+    endInclusive.setUTCHours(23, 59, 59, 0);
+
+    // CalDAV discovery + per-calendar query
+    const homeUrl = await discoverCalendarHome();
+    const cals = await findCalendarUrls(homeUrl, ICLOUD_CALENDARS);
+    if (cals.length === 0) {
+      throw new Error(`No matching iCloud calendars found among ${JSON.stringify(ICLOUD_CALENDARS)}. Open Fantastical and confirm the exact display names.`);
+    }
+    const allEvents: any[] = [];
+    for (const cal of cals) {
+      const icsBlocks = await queryCalendarEvents(cal.url, start, endInclusive);
+      for (const block of icsBlocks) {
+        const evt = parseVEvent(block);
+        if (!evt || !evt.dtstart) continue;
+        // Apply optional cancelled/keyword filters via parseCaseSummary
+        const parsed = parseCaseSummary(evt.summary);
+        if (!parsed.is_case) continue; // skip non-case events
+        if (parsed.cancelled && !input.include_cancelled) continue;
+        if (input.surgeon_lastname && !evt.summary.toLowerCase().includes(input.surgeon_lastname.toLowerCase())) continue;
+        allEvents.push({
+          calendar: cal.name,
+          date: evt.dtstart.toISOString().slice(0, 10),
+          time: evt.all_day ? null : evt.dtstart.toISOString().slice(11, 16),
+          all_day: evt.all_day,
+          surgeon: parsed.surgeon,
+          product: parsed.product,
+          case_count: parsed.case_count,
+          cancelled: parsed.cancelled,
+          location: evt.location,
+          raw_summary: evt.summary,
+        });
+      }
+    }
+    allEvents.sort((a, b) => (a.date + (a.time ?? "")).localeCompare(b.date + (b.time ?? "")));
+    return {
+      range: label,
+      calendars_queried: cals.map(c => c.name),
+      count: allEvents.length,
+      cases: allEvents,
+    };
   }
 
   if (name === "get_tray_status") {
