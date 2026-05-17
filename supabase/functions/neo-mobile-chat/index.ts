@@ -38,11 +38,26 @@ WHAT YOU CAN DO TODAY
 - Pull team member info (rep, territory, accounts)
 - Look up tray status (current location, type, last activity)
 - Create a Todoist task when the user mentions an action they need to take
+- Pull sales/revenue numbers (get_sales): aggregate revenue + case count for any entity over any window, with optional YoY/MoM comparison and group-by breakdowns
+- List recent surgical cases (get_recent_cases) by surgeon, location, or rep
 
 YOU CANNOT YET (use the self-expansion pattern below)
 - Draft emails, update the CRM, schedule calendar events, send messages, or anything else that writes.
-- Run sales/revenue queries (no get_recent_sales tool yet).
+- See upcoming/scheduled cases — case_usage is post-case only. (get_upcoming_cases is on the v0.2 list, pending iCloud setup.)
 - Build target lists or filtered surgeon searches.
+
+SALES & CASE QUERIES — guidance
+- For sales by SURGEON, daily_sales.doctor is a TEXT column (not surgeon_id). Pass surgeon_lastname to get_sales / get_recent_cases. Always run lookup_entity first to confirm the right surgeon, then use their lastname for the sales filter.
+- For sales by LOCATION or REP, pass entity_id (an integer) from lookup_entity (location) or get_team_member (rep).
+- Default windows when user is vague:
+  - "sales yesterday" → window=yesterday
+  - "this month" → window=mtd
+  - "year to date" / "this year" → window=ytd
+  - "last year" → window=last_year
+  - "running compared to last year" → window=ytd, compare_to=same_window_last_year
+- For "Who is Nick's top surgeon?" → entity_kind=rep, entity_id=Nick's rep_id, window=ytd, group_by=surgeon, limit=1.
+- Currency: revenue is in dollars. Format big numbers with commas and "$" prefix. Don't include cents unless asked.
+- If revenue is $0 and case_count is 0 over a non-trivial window, say so plainly — don't pretend you found something.
 
 TASK CAPTURE (automatic, with entity resolution)
 Listen for task-like phrases anywhere in the user's message — even buried inside other content:
@@ -208,6 +223,39 @@ const TOOLS = [
       },
       required: ["content"]
     }
+  },
+  {
+    name: "get_sales",
+    description: "Get aggregated sales/revenue from Agility Ortho's daily_sales table. Answers: 'How much did we do at Lankenau last year?', 'What were our sales yesterday?', 'How is Petrucelli running compared to this date last year?', 'Who is Nick's top surgeon?'. Pass the entity filter + the date window. Optional compare_to for YoY/MoM. Optional group_by for ranked breakdowns ('top 5 surgeons by rep'). For surgeon filter, pass surgeon_lastname (daily_sales.doctor is a text column).",
+    input_schema: {
+      type: "object",
+      properties: {
+        entity_kind: { type: "string", enum: ["surgeon", "location", "rep", "global"], description: "What to filter by. 'global' = no entity filter (company-wide)." },
+        entity_id: { type: "integer", description: "Required when entity_kind is 'location' or 'rep'. Pass the ID from lookup_entity or get_team_member." },
+        surgeon_lastname: { type: "string", description: "Required when entity_kind='surgeon'. Pass the lastname (e.g., 'Zelouf') since daily_sales.doctor is text." },
+        window: { type: "string", enum: ["today", "yesterday", "this_week", "last_week", "mtd", "last_month", "ytd", "last_year", "last_30_days", "last_90_days", "custom"], description: "Date window for the aggregate." },
+        custom_start: { type: "string", description: "ISO date (YYYY-MM-DD) when window='custom'." },
+        custom_end: { type: "string", description: "ISO date (YYYY-MM-DD) when window='custom'." },
+        compare_to: { type: "string", enum: ["same_window_last_year", "prior_month"], description: "Optional: also return the equivalent prior period for comparison." },
+        group_by: { type: "string", enum: ["surgeon", "location", "rep", "month"], description: "Optional: break the total into groups. Returns ranked rows instead of one total." },
+        limit: { type: "integer", description: "Optional: cap group_by results (e.g., limit=5 for top 5)." }
+      },
+      required: ["entity_kind", "window"]
+    }
+  },
+  {
+    name: "get_recent_cases",
+    description: "List recent surgical cases from the case_usage table (iTraycer feed, post-case only). Answers: 'When was Petrucelli's last case?', 'What did Nick run last week?'. Default limit 5, ordered most recent first. Note: case_usage only has PAST cases — for upcoming cases use get_upcoming_cases.",
+    input_schema: {
+      type: "object",
+      properties: {
+        entity_kind: { type: "string", enum: ["surgeon", "location", "rep"], description: "What to filter by." },
+        entity_id: { type: "integer", description: "Required when entity_kind is 'location' or 'rep'." },
+        surgeon_lastname: { type: "string", description: "Required when entity_kind='surgeon' (case_usage.surgeon is text)." },
+        limit: { type: "integer", description: "Default 5." }
+      },
+      required: ["entity_kind"]
+    }
   }
 ];
 
@@ -256,6 +304,146 @@ async function callClaude(messages: any[]): Promise<any> {
   });
   if (!resp.ok) throw new Error(`Anthropic ${resp.status}: ${await resp.text()}`);
   return await resp.json();
+}
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function resolveWindow(window: string, customStart?: string, customEnd?: string): { start: string; end: string; label: string } {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const year = today.getUTCFullYear();
+  const month = today.getUTCMonth();
+  const day = today.getUTCDate();
+
+  const startOfMonth = (y: number, m: number) => new Date(Date.UTC(y, m, 1));
+  const endOfMonth = (y: number, m: number) => new Date(Date.UTC(y, m + 1, 0));
+  const addDays = (d: Date, n: number) => { const r = new Date(d); r.setUTCDate(r.getUTCDate() + n); return r; };
+
+  switch (window) {
+    case "today":          return { start: isoDate(today), end: isoDate(today), label: "today" };
+    case "yesterday": {
+      const y = addDays(today, -1);
+      return { start: isoDate(y), end: isoDate(y), label: "yesterday" };
+    }
+    case "this_week": {
+      // ISO week: Monday = 1. Start of this week = Monday.
+      const dow = today.getUTCDay() || 7;
+      const mon = addDays(today, 1 - dow);
+      return { start: isoDate(mon), end: isoDate(today), label: "this week" };
+    }
+    case "last_week": {
+      const dow = today.getUTCDay() || 7;
+      const thisMon = addDays(today, 1 - dow);
+      const lastMon = addDays(thisMon, -7);
+      const lastSun = addDays(thisMon, -1);
+      return { start: isoDate(lastMon), end: isoDate(lastSun), label: "last week" };
+    }
+    case "mtd":            return { start: isoDate(startOfMonth(year, month)), end: isoDate(today), label: "month-to-date" };
+    case "last_month": {
+      const start = startOfMonth(year, month - 1);
+      const end = endOfMonth(year, month - 1);
+      return { start: isoDate(start), end: isoDate(end), label: `${start.toLocaleString("en-US", { month: "long", timeZone: "UTC" })} ${start.getUTCFullYear()}` };
+    }
+    case "ytd":            return { start: `${year}-01-01`, end: isoDate(today), label: "year-to-date" };
+    case "last_year":      return { start: `${year - 1}-01-01`, end: `${year - 1}-12-31`, label: `${year - 1}` };
+    case "last_30_days":   return { start: isoDate(addDays(today, -30)), end: isoDate(today), label: "last 30 days" };
+    case "last_90_days":   return { start: isoDate(addDays(today, -90)), end: isoDate(today), label: "last 90 days" };
+    case "custom":
+      if (!customStart || !customEnd) throw new Error("custom window requires custom_start and custom_end");
+      return { start: customStart, end: customEnd, label: `${customStart} to ${customEnd}` };
+    default:
+      throw new Error(`Unknown window: ${window}`);
+  }
+}
+
+function resolveComparisonWindow(start: string, end: string, kind: string): { start: string; end: string; label: string } {
+  const s = new Date(start + "T00:00:00Z");
+  const e = new Date(end + "T00:00:00Z");
+  if (kind === "same_window_last_year") {
+    const ps = new Date(Date.UTC(s.getUTCFullYear() - 1, s.getUTCMonth(), s.getUTCDate()));
+    const pe = new Date(Date.UTC(e.getUTCFullYear() - 1, e.getUTCMonth(), e.getUTCDate()));
+    return { start: isoDate(ps), end: isoDate(pe), label: "same period last year" };
+  }
+  if (kind === "prior_month") {
+    const ps = new Date(Date.UTC(s.getUTCFullYear(), s.getUTCMonth() - 1, s.getUTCDate()));
+    const pe = new Date(Date.UTC(e.getUTCFullYear(), e.getUTCMonth() - 1, e.getUTCDate()));
+    return { start: isoDate(ps), end: isoDate(pe), label: "prior month" };
+  }
+  throw new Error(`Unknown comparison: ${kind}`);
+}
+
+async function runSalesQuery(opts: {
+  entityKind: string;
+  entityId?: number;
+  surgeonLastname?: string;
+  start: string;
+  end: string;
+  groupBy?: string;
+  limit?: number;
+}): Promise<{ total_revenue: number; case_count: number; groups?: any[] }> {
+  // Build the WHERE clause inline using parameterized values via .filter() chain
+  let query = supabase
+    .from("daily_sales")
+    .select("net_amount, doctor, rep_id, location_id, surgery_date, document_number");
+  query = query.gte("surgery_date", opts.start).lte("surgery_date", opts.end);
+
+  if (opts.entityKind === "surgeon" && opts.surgeonLastname) {
+    query = query.ilike("doctor", `%${opts.surgeonLastname}%`);
+  } else if (opts.entityKind === "location" && opts.entityId) {
+    query = query.eq("location_id", opts.entityId);
+  } else if (opts.entityKind === "rep" && opts.entityId) {
+    query = query.eq("rep_id", opts.entityId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  const rows = data ?? [];
+
+  const total_revenue = rows.reduce((s: number, r: any) => s + Number(r.net_amount ?? 0), 0);
+  const case_count = new Set(rows.map((r: any) => r.document_number)).size;
+
+  if (!opts.groupBy) {
+    return { total_revenue, case_count };
+  }
+
+  // Group + rank
+  const buckets = new Map<string, { key: string; label: string; revenue: number; cases: Set<string> }>();
+  for (const r of rows) {
+    let key: string;
+    let label: string;
+    if (opts.groupBy === "surgeon")       { key = (r.doctor ?? "(unknown)").toString();          label = key; }
+    else if (opts.groupBy === "location") { key = String(r.location_id ?? "null");                label = key; }
+    else if (opts.groupBy === "rep")      { key = String(r.rep_id ?? "null");                    label = key; }
+    else if (opts.groupBy === "month")    { key = (r.surgery_date ?? "").toString().slice(0, 7); label = key; }
+    else                                  { key = "all"; label = "all"; }
+    if (!buckets.has(key)) buckets.set(key, { key, label, revenue: 0, cases: new Set() });
+    const b = buckets.get(key)!;
+    b.revenue += Number(r.net_amount ?? 0);
+    if (r.document_number) b.cases.add(r.document_number);
+  }
+  let groups = [...buckets.values()].map(b => ({ key: b.key, label: b.label, revenue: b.revenue, case_count: b.cases.size }));
+  groups.sort((a, b) => b.revenue - a.revenue);
+  if (opts.limit) groups = groups.slice(0, opts.limit);
+
+  // Enrich location/rep group labels with names
+  if (opts.groupBy === "location") {
+    const ids = groups.map(g => Number(g.key)).filter(n => Number.isFinite(n));
+    if (ids.length > 0) {
+      const { data: locs } = await supabase.from("locations").select("id, name").in("id", ids);
+      const map = new Map((locs ?? []).map((l: any) => [String(l.id), l.name]));
+      groups = groups.map(g => ({ ...g, label: map.get(g.key) ?? g.key }));
+    }
+  } else if (opts.groupBy === "rep") {
+    const ids = groups.map(g => Number(g.key)).filter(n => Number.isFinite(n));
+    if (ids.length > 0) {
+      const { data: reps } = await supabase.from("reps").select("id, name").in("id", ids);
+      const map = new Map((reps ?? []).map((r: any) => [String(r.id), r.name]));
+      groups = groups.map(g => ({ ...g, label: map.get(g.key) ?? g.key }));
+    }
+  }
+  return { total_revenue, case_count, groups };
 }
 
 async function executeTool(name: string, input: any): Promise<any> {
@@ -437,6 +625,79 @@ async function executeTool(name: string, input: any): Promise<any> {
       throw new Error(`Todoist API ${resp.status}: ${errText.slice(0, 200)}`);
     }
     return await resp.json();
+  }
+
+  if (name === "get_sales") {
+    const win = resolveWindow(input.window, input.custom_start, input.custom_end);
+    const primary = await runSalesQuery({
+      entityKind: input.entity_kind,
+      entityId: input.entity_id,
+      surgeonLastname: input.surgeon_lastname,
+      start: win.start,
+      end: win.end,
+      groupBy: input.group_by,
+      limit: input.limit,
+    });
+
+    const result: any = {
+      entity_kind: input.entity_kind,
+      entity_id: input.entity_id ?? null,
+      surgeon_lastname: input.surgeon_lastname ?? null,
+      window: { ...win },
+      revenue: primary.total_revenue,
+      case_count: primary.case_count,
+    };
+    if (primary.groups) result.groups = primary.groups;
+
+    if (input.compare_to) {
+      const cmpWin = resolveComparisonWindow(win.start, win.end, input.compare_to);
+      const cmp = await runSalesQuery({
+        entityKind: input.entity_kind,
+        entityId: input.entity_id,
+        surgeonLastname: input.surgeon_lastname,
+        start: cmpWin.start,
+        end: cmpWin.end,
+      });
+      result.comparison = {
+        window: cmpWin,
+        revenue: cmp.total_revenue,
+        case_count: cmp.case_count,
+        revenue_delta: primary.total_revenue - cmp.total_revenue,
+        revenue_delta_pct: cmp.total_revenue ? ((primary.total_revenue - cmp.total_revenue) / cmp.total_revenue) * 100 : null,
+      };
+    }
+    return result;
+  }
+
+  if (name === "get_recent_cases") {
+    let query = supabase
+      .from("case_usage")
+      .select("case_id, surgery_date, surgeon, hospital_raw, location_id, manufacturer, sales_rep, rep_id, total, case_type, line_item_count")
+      .order("surgery_date", { ascending: false })
+      .limit(input.limit ?? 5);
+
+    if (input.entity_kind === "surgeon" && input.surgeon_lastname) {
+      query = query.ilike("surgeon", `%${input.surgeon_lastname}%`);
+    } else if (input.entity_kind === "location" && input.entity_id) {
+      query = query.eq("location_id", input.entity_id);
+    } else if (input.entity_kind === "rep" && input.entity_id) {
+      query = query.eq("rep_id", input.entity_id);
+    }
+
+    const { data: cases, error } = await query;
+    if (error) throw error;
+
+    // Enrich location names
+    const locIds = [...new Set((cases ?? []).map((c: any) => c.location_id).filter(Boolean))];
+    let locMap: Map<number, string> = new Map();
+    if (locIds.length > 0) {
+      const { data: locs } = await supabase.from("locations").select("id, name").in("id", locIds);
+      locMap = new Map((locs ?? []).map((l: any) => [l.id, l.name]));
+    }
+    return (cases ?? []).map((c: any) => ({
+      ...c,
+      location_name: c.location_id ? locMap.get(c.location_id) ?? null : null,
+    }));
   }
 
   if (name === "get_tray_status") {
