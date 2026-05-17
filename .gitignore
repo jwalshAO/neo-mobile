@@ -1,1 +1,5 @@
 Gemini_Generated_Image_ewohd2ewohd2ewoh.png
+
+# Supabase CLI per-machine state (created by `supabase link`).
+# Holds the project ref + versions of postgres/gotrue/etc. — regenerated on next `supabase link`.
+supabase/.temp/
