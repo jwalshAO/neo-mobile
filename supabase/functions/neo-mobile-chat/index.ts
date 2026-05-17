@@ -51,10 +51,36 @@ WHAT YOU CAN DO TODAY
 - Pull sales/revenue numbers (get_sales): aggregate revenue + case count for any entity over any window, with optional YoY/MoM comparison and group-by breakdowns
 - List recent surgical cases (get_recent_cases) by surgeon, location, or rep
 - List upcoming scheduled cases (get_upcoming_cases) from John's iCloud calendars (Work + Private). Non-case events (meetings, conferences, labs, meals) are filtered out automatically.
+- Save a field note (save_field_note) so an observation flows into the CRM and the Brain extracts facts. ALWAYS confirm with the user before saving.
 
 YOU CANNOT YET (use the self-expansion pattern below)
-- Draft emails, update the CRM, schedule calendar events, send messages, or anything else that writes.
+- Draft emails, schedule calendar events, send messages, or anything else that writes outside the CRM.
 - Build target lists or filtered surgeon searches.
+
+FIELD INTEL CAPTURE (ASK first, then save)
+If the user shares a specific observation about a surgeon, location, manufacturer, or competitor that should live in the CRM beyond this chat, ASK before saving.
+
+Recognize observation-worthy phrases:
+- "X mentioned Y" / "X told me Y" / "X said Y"
+- "X is using Y" / "X switched to Y"
+- "Saw X at Hospital Z today"
+- "X is unhappy with Y" / "X is excited about Y"
+- "Heard that X" (secondhand intel)
+
+Ask one short question:
+- "Save that as a field note on Dr. Petrucelli?"
+
+On yes (or if the user explicitly says "save that" / "log it"):
+1. Run lookup_entity if you haven't already, so the field note anchors to the right CRM entity
+2. Call save_field_note with entity_kind, entity_id (if known), subject_text, note_body (the user's observation, lightly cleaned, no quoting), and 1-3 tags
+3. Confirm: "Saved on Petrucelli."
+
+Tags to pick from: Surgeon Interaction, Case Feedback, Competitive Intel, Product Interest, Issue / Complaint, Observation.
+
+DO NOT call save_field_note for:
+- Pure questions about existing data ("how is Petrucelli running?")
+- Hypotheticals or thinking out loud
+- Without explicit consent (always ask first; only skip the ask if the user said "save that" / "log it" / "make a note of that" up front)
 
 SALES & CASE QUERIES — guidance
 - For sales by SURGEON, daily_sales.doctor is a TEXT column (not surgeon_id). Pass surgeon_lastname to get_sales / get_recent_cases. Always run lookup_entity first to confirm the right surgeon, then use their lastname for the sales filter.
@@ -268,6 +294,22 @@ const TOOLS = [
     }
   },
   {
+    name: "save_field_note",
+    description: "Save an observation as a field_notes row in the CRM so the Field Notes Brain can extract structured facts from it. Use when the user shares a specific observation about a surgeon, location, manufacturer, or competitor — like 'X said Y', 'X is using Z', 'Saw X at Y today'. ALWAYS ask the user before calling this tool, unless they explicitly said 'save that' / 'log it' / 'make a note of that' up front. Note flows through the same pipeline as Field Notes captures.",
+    input_schema: {
+      type: "object",
+      properties: {
+        entity_kind: { type: "string", enum: ["surgeon", "location", "manufacturer", "competitor", "freeform"], description: "What the note is anchored to. Use 'freeform' only when no CRM entity applies." },
+        entity_id: { type: "integer", description: "Required when entity_kind is surgeon/location/manufacturer/competitor. From lookup_entity." },
+        subject_text: { type: "string", description: "Display label, e.g. 'Philip Petrucelli, MD' or 'Lankenau Medical Center'." },
+        note_body: { type: "string", description: "The observation in the user's words, lightly cleaned. Preserve specifics. Example: 'Mentioned not happy with Acumed case coverage; would consider switching to TYBR DRP.'" },
+        tags: { type: "array", items: { type: "string", enum: ["Surgeon Interaction", "Case Feedback", "Competitive Intel", "Product Interest", "Issue / Complaint", "Observation"] }, description: "1-3 tags that apply." },
+        next_action: { type: "string", description: "Optional follow-up action to track." }
+      },
+      required: ["entity_kind", "subject_text", "note_body"]
+    }
+  },
+  {
     name: "get_upcoming_cases",
     description: "List upcoming/scheduled surgical cases from John's iCloud calendars (Work + Private). Answers: 'How many cases do I have tomorrow?', 'What's on the schedule next week?', 'Any cases at Lankenau this Friday?'. Reads via CalDAV in real time. Non-case events (meetings, conferences, cadaver labs, meals, travel, PTO) are filtered out. Cancelled cases (marked with ❌ or X-prefix or 'cancel') are excluded by default.",
     input_schema: {
@@ -471,7 +513,8 @@ async function runSalesQuery(opts: {
   return { total_revenue, case_count, groups };
 }
 
-async function executeTool(name: string, input: any): Promise<any> {
+async function executeTool(name: string, input: any, ctx: { repId: number | null }): Promise<any> {
+  const { repId } = ctx;
   if (name === "lookup_entity") {
     const { data, error } = await supabase.rpc("fn_lookup_entity", {
       p_query: input.query,
@@ -725,6 +768,28 @@ async function executeTool(name: string, input: any): Promise<any> {
     }));
   }
 
+  if (name === "save_field_note") {
+    if (!repId) throw new Error("Cannot save field note: no authenticated rep matched the JWT email.");
+    const row: any = {
+      rep_id: repId,
+      subject_type: input.entity_kind,
+      subject_text: input.subject_text,
+      note_body: input.note_body,
+      note_date: new Date().toISOString().slice(0, 10),
+      status: "submitted",
+      is_test: false,
+    };
+    if (Array.isArray(input.tags) && input.tags.length > 0) row.tags = input.tags;
+    if (input.next_action) row.next_action = input.next_action;
+    if (input.entity_kind === "surgeon" && input.entity_id) row.surgeon_id = input.entity_id;
+    else if (input.entity_kind === "location" && input.entity_id) row.location_id = input.entity_id;
+    else if (input.entity_kind === "manufacturer" && input.entity_id) row.manufacturer_id = input.entity_id;
+    else if (input.entity_kind === "competitor" && input.entity_id) row.competitor_id = input.entity_id;
+    const { data, error } = await supabase.from("field_notes").insert(row).select("id, subject_text, subject_type, note_date").single();
+    if (error) throw error;
+    return { saved: true, field_note_id: data.id, subject: data.subject_text, anchored_to: data.subject_type, note_date: data.note_date };
+  }
+
   if (name === "get_upcoming_cases") {
     const cfg = caldavConfigured();
     if (!cfg.ok) throw new Error(`iCloud not configured. Add app-specific password to Supabase secrets. Seen: ${JSON.stringify(cfg.seen)}`);
@@ -927,7 +992,7 @@ Deno.serve(async (req) => {
       for (const block of toolUseBlocks) {
         const callRecord: any = { name: block.name, input: block.input };
         try {
-          const result = await executeTool(block.name, block.input);
+          const result = await executeTool(block.name, block.input, { repId });
           toolResults.push({
             type: "tool_result",
             tool_use_id: block.id,

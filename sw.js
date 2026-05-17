@@ -1,4 +1,4 @@
-const CACHE_NAME = 'neo-mobile-v0-4';
+const CACHE_NAME = 'neo-mobile-v0-5';
 const ASSETS = [
   '/index.html',
   '/manifest.json'
