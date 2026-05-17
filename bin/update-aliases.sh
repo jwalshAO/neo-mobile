@@ -22,6 +22,8 @@ if [[ ! -f "$AUTH_FILE" ]]; then
   exit 1
 fi
 
+# CLI tokens expire ~1hr. Touch whoami to trigger a refresh-token swap if needed.
+vercel whoami >/dev/null 2>&1 || true
 TOKEN=$(jq -r .token "$AUTH_FILE")
 
 # Find the latest READY production deployment
